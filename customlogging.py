@@ -31,8 +31,22 @@ def initLogger(console_level=logging.DEBUG, descriptor=""):
     logger.addHandler(f_handler)
 
     # Redirect STDOUT and STDERR to the log stream
-    sys.stderr = sys.stdout = StreamLogger(logging.getLogger("main"), logging.INFO)
+    #sys.stderr = sys.stdout = StreamLogger(logging.getLogger("main"), logging.INFO)
 
+def getLogger(name):
+
+    l = logging.getLogger(name)
+
+    crit_default = l.critical
+
+    def critical(msg, *args, **kwargs):
+        crit_default(msg, *args, **kwargs)
+        exit(2)
+        print()
+
+    l.critical = critical
+
+    return l
 
 # Streamhandler for STDOUT and STDERR output
 class StreamLogger(object):
