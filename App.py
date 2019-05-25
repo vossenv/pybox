@@ -1,6 +1,7 @@
 import logging
 import re
 import time
+import sys
 from subprocess import check_output, CalledProcessError
 
 import click
@@ -43,7 +44,7 @@ def start(ctx, **kwargs):
     logger.info(kwargs)
 
     start_delay = kwargs['start_delay']
-    vmlist = filter_vmlist(ctx.obj['vmlist'], "halted")
+    vmlist = filter_vmlist(ctx.obj['vmlist'], "halted", True)
     for vm in vmlist:
         success = start_single_vm(vm)
         if len(vmlist) > 1 and vm != vmlist[-1] and success:
@@ -66,7 +67,7 @@ def stop(ctx, **kwargs):
     logger.info(kwargs)
 
     method = "acpipowerbutton" if kwargs['method'] == 'acpi' else "poweroff"
-    vmlist = filter_vmlist(ctx.obj['vmlist'], "running")
+    vmlist = filter_vmlist(ctx.obj['vmlist'], "running", True)
     for vm in vmlist:
         stop_single_vm(vm, method)
     logger.info("Finished shutdown sequence for all VM's!")
@@ -79,31 +80,52 @@ def stop(ctx, **kwargs):
               type=click.Choice(['acpi', 'force']),
               nargs=1,
               default='acpi')
+@click.option('--max-wait-time',
+              help="restart will continue after this time (minutes) even if some VM's did not shut down.  Use 0 for never.",
+              type=float,
+              nargs=1,
+              default=.25)
 def restart(ctx, **kwargs):
     logger.info("Restarting virtualmachines... ")
     logger.info("Parameters: ")
     logger.info(kwargs)
 
-    vmlist = filter_vmlist(ctx.obj['vmlist'], "running")
+    max_wait = float(kwargs['max_wait_time'])*60.0
+    vmlist = filter_vmlist(ctx.obj['vmlist'], "running", True)
 
     if kwargs['method'] == "force":
         for vm in vmlist:
             hard_reset_vm(vm)
     else:
         for vm in vmlist:
-            pass
-            # stop_single_vm(vm, "acpipowerbutton")
+            stop_single_vm(vm, "acpipowerbutton")
 
+        start_time = time.time()
+        time.sleep(2)
         while True:
-            clist = get_running_vms()
-            print()
+            elapsed_time = time.time() - start_time
+
+            remaining = filter_vmlist(vmlist, "running")
+            if len(remaining) == 0:
+                break
+
+            if elapsed_time > max_wait and max_wait != 0:
+                logger.info("Max wait time exceeded.. continuing on startup... ")
+                break
+            else:
+                left = "inf" if max_wait == 0 else str(round(max_wait - elapsed_time))
+                logger.info("Waiting for VM's to power down, " + left  + " seconds remaining... " + str(remaining))
+                time.sleep(5)
+
+        for vm in vmlist:
+            start_single_vm(vm)
 
     logger.info("Finished reboot sequence for all VM's!")
 
 
-def filter_vmlist(vmlist, filter):
-    logger.info("Filtering vm list, and returning all that are: " + filter)
-    logger.info("Starting VM list: " + str(vmlist))
+def filter_vmlist(vmlist, filter, exit_on_empty=False):
+    logger.debug("Filtering vm list, and returning all that are: " + filter)
+    logger.debug("Starting VM list: " + str(vmlist))
 
     updated_list = vmlist.copy()
     running = get_running_vms()
@@ -118,11 +140,11 @@ def filter_vmlist(vmlist, filter):
                 logger.info("Skipping " + v + ", already running!")
                 updated_list.remove(v)
 
-    if len(updated_list) == 0:
-        logger.info("No VM's left in list!! exiting!")
+    if len(updated_list) == 0 and exit_on_empty:
+        logger.debug("No VM's left in list!! exiting!")
         exit(0)
 
-    logger.info("Final VM list: " + str(updated_list))
+    logger.debug("Filtered VM list: " + str(updated_list))
     return updated_list
 
 
