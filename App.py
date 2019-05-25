@@ -14,21 +14,31 @@ logger = logging.getLogger("vbox")
 
 @click.group()
 @click.option('--debug', is_flag=True)
-@click.option('-l', '--vmlist',
+@click.option('--vmlist',
               help="comma separated list of VMs (default is 'all')",
               type=str,
               nargs=1)
+@click.option('--vmfile',
+              help="path to vmfile (line by line list of VM names in VirtualBox)",
+              type=str,
+              nargs=1)
+
 @click.pass_context
-def cli(ctx, **kwargs):
-    logger.setLevel(logging.DEBUG if kwargs['debug'] else logging.INFO)
-    vmlist = kwargs['vmlist']
+def cli(ctx, debug, vmlist, vmfile):
+
+    logger.setLevel(logging.DEBUG if debug else logging.INFO)
+
+    if vmlist and vmfile:
+        logger.critical("Cannot specify both a list and a file... ")
+        exit(2)
+
     if vmlist is not None:
         vmlist = [v.strip().replace("\"", "") for v in vmlist.split(",")]
     else:
         vmlist = get_current_vmlist()
 
-    kwargs['vmlist'] = vmlist
-    ctx.obj = kwargs
+
+    ctx.obj = {'vmlist': vmlist}
 
 
 @cli.command()
