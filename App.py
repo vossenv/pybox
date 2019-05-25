@@ -41,23 +41,13 @@ def start(ctx, **kwargs):
     logger.info(kwargs)
 
     start_delay = kwargs['start_delay']
-    vmlist = ctx.obj['vmlist']
-
-    logger.info("Removing already running VM's from working list... ")
-    for v in parse_vm_list(shell_exec("vboxmanage list runningvms")[0]):
-        if v in vmlist:
-            logger.info("Skipping " + v + ", already running!")
-            vmlist.remove(v)
-
-    logger.info("Final VM list: " + str(vmlist))
-
+    vmlist = filter_vmlist(ctx.obj['vmlist'], "halted")
     for vm in vmlist:
         success = start_single_vm(vm)
         if len(vmlist) > 1 and vm != vmlist[-1] and success:
             for i in range(start_delay):
                 logger.info("Sleeping for " + str(start_delay) + " minutes, " + str(start_delay - i) + " remaining... ")
                 time.sleep(1)
-
     logger.info("Finished boot sequence for all VM's!")
 
 
@@ -74,31 +64,62 @@ def stop(ctx, **kwargs):
     logger.info(kwargs)
 
     method = "acpipowerbutton" if kwargs['method'] == 'acpi' else "poweroff"
-    vmlist = ctx.obj['vmlist']
-
-    logger.info("Removing already stopped VM's from working list... ")
-    running = get_running_vms()
-    for v in vmlist:
-        if v not in running:
-            logger.info("Skipping " + v + ", already stopped!")
-            vmlist.remove(v)
-
-    logger.info("Final VM list: " + str(vmlist))
-
-    if len(vmlist) == 0:
-        logger.info("No VM's to stop... exiting!")
-        exit(0)
-
+    vmlist = filter_vmlist(ctx.obj['vmlist'], "running")
     for vm in vmlist:
         stop_single_vm(vm, method)
-
     logger.info("Finished shutdown sequence for all VM's!")
 
+
+@cli.command()
+@click.pass_context
+@click.option('--method',
+              help="how to power down the vm - hard (force) or normal (acpi)",
+              type=click.Choice(['acpi', 'force']),
+              nargs=1,
+              default='acpi')
+def restart(ctx, **kwargs):
+    logger.info("Restarting virtualmachines... ")
+    logger.info("Parameters: ")
+    logger.info(kwargs)
+
+    vmlist = filter_vmlist(ctx.obj['vmlist'], "running")
+    for vm in vmlist:
+        hard_reset_vm(vm)
+    logger.info("Finished reboot sequence for all VM's!")
+
+def filter_vmlist(vmlist, filter):
+    logger.info("Filtering vm list, removing vm's that are: " + filter)
+
+    running = get_running_vms()
+    if filter == "running":
+        for v in vmlist:
+            if v not in running:
+                logger.info("Skipping " + v + ", already stopped!")
+                vmlist.remove(v)
+    else:
+        for v in running:
+            if v in vmlist:
+                logger.info("Skipping " + v + ", already running!")
+                vmlist.remove(v)
+
+    if len(vmlist) == 0:
+        logger.info("No VM's left in list!! exiting!")
+        exit(0)
+
+    logger.info("Final VM list: " + str(vmlist))
+    return vmlist
 
 def get_running_vms():
     logger.debug("Fetch running VM's... ")
     running = parse_vm_list(shell_exec("vboxmanage list runningvms")[0])
     return running if running else []
+
+
+def hard_reset_vm(name):
+    logger.info("Attempting to hard restart vm: " + name)
+    r, c = shell_exec("vboxmanage controlvm \"" + name + "\" reset")
+    if not c: logger.warning("Failed to restart vm: " + name)
+    return c
 
 
 def start_single_vm(name):
