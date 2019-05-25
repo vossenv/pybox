@@ -37,7 +37,7 @@ def cli(ctx, **kwargs):
               help="waiting period between VM startups [min]",
               type=int,
               nargs=1,
-              default=10)
+              default=-1)
 def start(ctx, **kwargs):
     logger.info("Starting all virtualmachines... ")
     logger.info("Parameters: ")
@@ -47,7 +47,7 @@ def start(ctx, **kwargs):
     vmlist = filter_vmlist(ctx.obj['vmlist'], "halted", True)
     for vm in vmlist:
         success = start_single_vm(vm)
-        if len(vmlist) > 1 and vm != vmlist[-1] and success:
+        if len(vmlist) > 1 and vm != vmlist[-1] and success and start_delay != -1.0:
             for i in range(start_delay):
                 logger.info("Sleeping for " + str(start_delay) + " minutes, " + str(start_delay - i) + " remaining... ")
                 time.sleep(1)
@@ -56,78 +56,75 @@ def start(ctx, **kwargs):
 
 @cli.command()
 @click.pass_context
-@click.option('--method',
-              help="how to power down the vm - hard (force) or normal (acpi)",
-              type=click.Choice(['acpi', 'force']),
-              nargs=1,
-              default='acpi')
+@click.option('--force', is_flag=True,
+              help="how to power down the vm - hard (force) or normal (acpi)")
 def stop(ctx, **kwargs):
     logger.info("Stopping all virtualmachines... ")
     logger.info("Parameters: ")
     logger.info(kwargs)
 
-    method = "acpipowerbutton" if kwargs['method'] == 'acpi' else "poweroff"
     vmlist = filter_vmlist(ctx.obj['vmlist'], "running", True)
-    for vm in vmlist:
-        stop_single_vm(vm, method)
+    stop_all(vmlist, force=kwargs['force'])
     logger.info("Finished shutdown sequence for all VM's!")
 
 
 @cli.command()
 @click.pass_context
-@click.option('--method',
-              help="how to power down the vm - hard (force) or normal (acpi)",
-              type=click.Choice(['acpi', 'force']),
-              nargs=1,
-              default='acpi')
+@click.option('--force', is_flag=True,
+              help="how to power down the vm - hard (force) or normal (acpi)")
 @click.option('--max-wait-time',
               help="restart will continue after this time (minutes) even if some VM's did not shut down.  Use 0 for never.",
               type=float,
               nargs=1,
-              default=.25)
+              default=1.0)
 def restart(ctx, **kwargs):
     logger.info("Restarting virtualmachines... ")
     logger.info("Parameters: ")
     logger.info(kwargs)
 
-    max_wait = float(kwargs['max_wait_time'])*60.0
+    max_wait_time = float(kwargs['max_wait_time']) * 60.0
     vmlist = filter_vmlist(ctx.obj['vmlist'], "running", True)
 
-    if kwargs['method'] == "force":
+    if kwargs['force']:
         for vm in vmlist:
             hard_reset_vm(vm)
     else:
-        for vm in vmlist:
-            stop_single_vm(vm, "acpipowerbutton")
-
-        start_time = time.time()
-        time.sleep(2)
-        while True:
-            elapsed_time = time.time() - start_time
-
-            remaining = filter_vmlist(vmlist, "running")
-            if len(remaining) == 0:
-                break
-
-            if elapsed_time > max_wait and max_wait != 0:
-                logger.info("Max wait time exceeded.. continuing on startup... ")
-                break
-            else:
-                left = "inf" if max_wait == 0 else str(round(max_wait - elapsed_time))
-                logger.info("Waiting for VM's to power down, " + left  + " seconds remaining... " + str(remaining))
-                time.sleep(5)
-
-        for vm in vmlist:
-            start_single_vm(vm)
+        stop_all(vmlist, max_wait=max_wait_time)
+        start_all(vmlist)
 
     logger.info("Finished reboot sequence for all VM's!")
+
+
+def await_vm_halt(vmlist, max_wait=-1.0):
+    if max_wait == -1.0: return True
+    start_time = time.time()
+    time.sleep(2)
+    count = 0
+    while True:
+        elapsed_time = time.time() - start_time
+        remaining = filter_vmlist(vmlist, "running")
+        if len(remaining) == 0:
+            return True
+
+        if elapsed_time > max_wait and max_wait != 0:
+            logger.info("Max wait time exceeded.. continuing on startup... ")
+            return False
+        else:
+            left = "inf" if max_wait == 0 else str(round(max_wait - elapsed_time))
+            logger.info("Waiting for VM's to power down, " + left + " seconds remaining... " + str(remaining))
+            count += 1
+            if count % 5 == 0:
+                logger.info("Retrying stop command...")
+                stop_all(vmlist, max_wait=-1)
+            time.sleep(5)
+
 
 
 def filter_vmlist(vmlist, filter, exit_on_empty=False):
     logger.debug("Filtering vm list, and returning all that are: " + filter)
     logger.debug("Starting VM list: " + str(vmlist))
 
-    updated_list = vmlist.copy()
+    updated_list = list(vmlist)
     running = get_running_vms()
     if filter == "running":
         for v in vmlist:
@@ -161,6 +158,17 @@ def hard_reset_vm(name):
     return c
 
 
+def stop_all(vmlist, force=False, max_wait=-1.0):
+    for vm in vmlist:
+        stop_single_vm(vm, force=force)
+    return await_vm_halt(vmlist, max_wait=max_wait)
+
+
+def start_all(vmlist):
+    for vm in vmlist:
+        start_single_vm(vm)
+
+
 def start_single_vm(name):
     logger.info("Attempting to start vm: " + name)
     r, c = shell_exec("vboxmanage startvm \"" + name + "\" --type headless")
@@ -168,9 +176,11 @@ def start_single_vm(name):
     return c
 
 
-def stop_single_vm(name, method):
+def stop_single_vm(name, force=False, max_wait=-1.0):
+    method = "poweroff" if force == 'acpi' else "acpipowerbutton"
     logger.info("Attempting to stop vm: " + name)
     r, c = shell_exec("vboxmanage controlvm \"" + name + "\" " + method + " --type headless")
+    await_vm_halt(name, max_wait)
     if not c:
         logger.warning("Failed to stop vm: " + name)
         return False
