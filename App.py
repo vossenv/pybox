@@ -1,9 +1,11 @@
 import logging
 import re
 import time
-import click
-import customlogging
 from subprocess import check_output, CalledProcessError
+
+import click
+
+import customlogging
 
 customlogging.initLogger()
 logger = logging.getLogger("vbox")
@@ -83,31 +85,46 @@ def restart(ctx, **kwargs):
     logger.info(kwargs)
 
     vmlist = filter_vmlist(ctx.obj['vmlist'], "running")
-    for vm in vmlist:
-        hard_reset_vm(vm)
+
+    if kwargs['method'] == "force":
+        for vm in vmlist:
+            hard_reset_vm(vm)
+    else:
+        for vm in vmlist:
+            pass
+            # stop_single_vm(vm, "acpipowerbutton")
+
+        while True:
+            clist = get_running_vms()
+            print()
+
     logger.info("Finished reboot sequence for all VM's!")
 
-def filter_vmlist(vmlist, filter):
-    logger.info("Filtering vm list, removing vm's that are: " + filter)
 
+def filter_vmlist(vmlist, filter):
+    logger.info("Filtering vm list, and returning all that are: " + filter)
+    logger.info("Starting VM list: " + str(vmlist))
+
+    updated_list = vmlist.copy()
     running = get_running_vms()
     if filter == "running":
         for v in vmlist:
             if v not in running:
                 logger.info("Skipping " + v + ", already stopped!")
-                vmlist.remove(v)
+                updated_list.remove(v)
     else:
         for v in running:
             if v in vmlist:
                 logger.info("Skipping " + v + ", already running!")
-                vmlist.remove(v)
+                updated_list.remove(v)
 
-    if len(vmlist) == 0:
+    if len(updated_list) == 0:
         logger.info("No VM's left in list!! exiting!")
         exit(0)
 
-    logger.info("Final VM list: " + str(vmlist))
-    return vmlist
+    logger.info("Final VM list: " + str(updated_list))
+    return updated_list
+
 
 def get_running_vms():
     logger.debug("Fetch running VM's... ")
