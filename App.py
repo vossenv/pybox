@@ -1,6 +1,7 @@
 import logging
 import re
 import time
+import datetime
 import yaml
 import click
 import customlogging
@@ -15,7 +16,9 @@ defaults = {
     'vmlist': None,
     'vmfile': None,
     'force': False,
-    'max_wait_time': 1.0
+    'max_wait_time': 1.0,
+    'add': True,
+    'restart': True
 }
 
 
@@ -82,7 +85,7 @@ def stop(ctx, **kwargs):
     logger.info("Parameters: ")
     logger.info(options)
 
-    vmlist = filter_vmlist(ctx.obj['vmlist'], "running", True)
+    vmlist = filter_vmlist(options['vmlist'], "running", True)
     stop_all(vmlist, force=options['force'])
     logger.info("Finished shutdown sequence for all VM's!")
 
@@ -113,6 +116,34 @@ def restart(ctx, **kwargs):
         start_all(vmlist)
 
     logger.info("Finished reboot sequence for all VM's!")
+
+
+@cli.command()
+@click.pass_context
+@click.option('--force', is_flag=True,
+              help="how to power down the vm - hard (force) or normal (acpi)")
+@click.option('--add', is_flag=True,
+              help="if set, the VM will be registered in the virtualbox GUI afterwards")
+@click.option('--restart', is_flag=True,
+              help="if set, the original VMs will be started after cloning")
+def clone(ctx, **kwargs):
+    options = set_options(ctx.obj, kwargs)
+    logger.info("Cloning virtualmachines... ")
+    logger.info("Parameters: ")
+    logger.info(options)
+
+    max_wait_time = float(options['max_wait_time']) * 60.0
+    vmlist_run = filter_vmlist(options['vmlist'], filter="running")
+
+    stop_all(vmlist_run, options['force'], max_wait_time)
+    for vm in options['vmlist']:
+        clone_single_vm(vm, options['add'])
+
+    if options['restart']:
+        logger.info("Restart was True - starting up VM's... ")
+        start_all(options['vmlist'])
+
+    logger.info("Clone operation finished!")
 
 
 def await_vm_halt(vmlist, max_wait):
@@ -205,21 +236,31 @@ def start_all(vmlist):
         start_single_vm(vm)
 
 
+def process_shell_result(command, fail_message):
+    r, c = shell_exec(command)
+    logger.info(r)
+    if not c: logger.warning(fail_message)
+    return c
+
+
+def clone_single_vm(name, add=True):
+    register = '--register' if add else ''
+    cname = name + "_" + datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+    logger.info("Attempting to clone vm: " + name)
+    return process_shell_result("vboxmanage clonevm \"" + name + "\" --name \"" + cname + "\" " + register, "Failed to clone vm: " + name)
+
+
 def start_single_vm(name):
     logger.info("Attempting to start vm: " + name)
-    r, c = shell_exec("vboxmanage startvm \"" + name + "\" --type headless")
-    if not c: logger.warning("Failed to boot vm: " + name)
-    return c
+    return process_shell_result("vboxmanage startvm \"" + name + "\" --type headless", "Failed to boot vm: " + name)
 
 
 def stop_single_vm(name, force=False, max_wait=-1.0):
     method = "poweroff" if force == 'acpi' else "acpipowerbutton"
     logger.info("Attempting to stop vm: " + name)
-    r, c = shell_exec("vboxmanage controlvm \"" + name + "\" " + method + " --type headless")
+    c = process_shell_result("vboxmanage controlvm \"" + name + "\" " + method + " --type headless", "Failed to stop vm: " + name)
     await_vm_halt(name, max_wait)
-    if not c:
-        logger.warning("Failed to stop vm: " + name)
-        return False
+    return c
 
 
 def get_current_vmlist():
