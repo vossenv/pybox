@@ -1,0 +1,4 @@
+debug: False
+max_wait_time: 0.25
+#vmlist: a,b,c
+#vmfile: vmfile.txt

@@ -1,19 +1,26 @@
 import logging
 import re
 import time
-import sys
-from subprocess import check_output, CalledProcessError
-
+import yaml
 import click
-
 import customlogging
+from subprocess import check_output, CalledProcessError
 
 customlogging.initLogger()
 logger = logging.getLogger("vbox")
 
+defaults = {
+    'start_delay': -1,
+    'debug': False,
+    'vmlist': None,
+    'vmfile': None,
+    'force': False,
+    'max_wait_time': 1.0
+}
+
 
 @click.group()
-@click.option('--debug', is_flag=True)
+@click.option('--debug', is_flag=True, default=None)
 @click.option('--vmlist',
               help="comma separated list of VMs (default is 'all')",
               type=str,
@@ -22,23 +29,23 @@ logger = logging.getLogger("vbox")
               help="path to vmfile (line by line list of VM names in VirtualBox)",
               type=str,
               nargs=1)
-
 @click.pass_context
-def cli(ctx, debug, vmlist, vmfile):
+def cli(ctx, **kwargs):
+    with open("settings.yml", 'r') as stream:
+        options = yaml.safe_load(stream)
+    options = set_options(options, kwargs)
+    logger.setLevel(logging.DEBUG if options['debug'] else logging.INFO)
 
-    logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    vmlist = []
+    if options['vmlist']:
+        vmlist.extend([v.strip().replace("\"", "") for v in options['vmlist'].split(",")])
+    if options['vmfile']:
+        from_file = read_vms_from_file(options['vmfile'])
+        for v in from_file:
+            if v not in vmlist: vmlist.append(v)
 
-    if vmlist and vmfile:
-        logger.critical("Cannot specify both a list and a file... ")
-        exit(2)
-
-    if vmlist is not None:
-        vmlist = [v.strip().replace("\"", "") for v in vmlist.split(",")]
-    else:
-        vmlist = get_current_vmlist()
-
-
-    ctx.obj = {'vmlist': vmlist}
+    options['vmlist'] = get_current_vmlist() if not vmlist else vmlist
+    ctx.obj = options
 
 
 @cli.command()
@@ -47,13 +54,14 @@ def cli(ctx, debug, vmlist, vmfile):
               help="waiting period between VM startups [min]",
               type=int,
               nargs=1,
-              default=-1)
+              default=None)
 def start(ctx, **kwargs):
+    options = set_options(ctx.obj, kwargs)
     logger.info("Starting all virtualmachines... ")
     logger.info("Parameters: ")
-    logger.info(kwargs)
+    logger.info(options)
 
-    start_delay = kwargs['start_delay']
+    start_delay = options['start_delay']
     vmlist = filter_vmlist(ctx.obj['vmlist'], "halted", True)
     for vm in vmlist:
         success = start_single_vm(vm)
@@ -66,15 +74,16 @@ def start(ctx, **kwargs):
 
 @cli.command()
 @click.pass_context
-@click.option('--force', is_flag=True,
+@click.option('--force', is_flag=True, default=None,
               help="how to power down the vm - hard (force) or normal (acpi)")
 def stop(ctx, **kwargs):
+    options = set_options(ctx.obj, kwargs)
     logger.info("Stopping all virtualmachines... ")
     logger.info("Parameters: ")
-    logger.info(kwargs)
+    logger.info(options)
 
     vmlist = filter_vmlist(ctx.obj['vmlist'], "running", True)
-    stop_all(vmlist, force=kwargs['force'])
+    stop_all(vmlist, force=options['force'])
     logger.info("Finished shutdown sequence for all VM's!")
 
 
@@ -86,16 +95,17 @@ def stop(ctx, **kwargs):
               help="restart will continue after this time (minutes) even if some VM's did not shut down.  Use 0 for never.",
               type=float,
               nargs=1,
-              default=1.0)
+              default=None)
 def restart(ctx, **kwargs):
+    options = set_options(ctx.obj, kwargs)
     logger.info("Restarting virtualmachines... ")
     logger.info("Parameters: ")
-    logger.info(kwargs)
+    logger.info(options)
 
-    max_wait_time = float(kwargs['max_wait_time']) * 60.0
-    vmlist = filter_vmlist(ctx.obj['vmlist'], "running", True)
+    max_wait_time = float(options['max_wait_time']) * 60.0
+    vmlist = filter_vmlist(options['vmlist'], filter="running", exit_on_empty=True)
 
-    if kwargs['force']:
+    if options['force']:
         for vm in vmlist:
             hard_reset_vm(vm)
     else:
@@ -105,7 +115,7 @@ def restart(ctx, **kwargs):
     logger.info("Finished reboot sequence for all VM's!")
 
 
-def await_vm_halt(vmlist, max_wait=-1.0):
+def await_vm_halt(vmlist, max_wait):
     if max_wait == -1.0: return True
     start_time = time.time()
     time.sleep(2)
@@ -127,7 +137,6 @@ def await_vm_halt(vmlist, max_wait=-1.0):
                 logger.info("Retrying stop command...")
                 stop_all(vmlist, max_wait=-1)
             time.sleep(5)
-
 
 
 def filter_vmlist(vmlist, filter, exit_on_empty=False):
@@ -153,6 +162,23 @@ def filter_vmlist(vmlist, filter, exit_on_empty=False):
 
     logger.debug("Filtered VM list: " + str(updated_list))
     return updated_list
+
+
+def set_options(options, commandline):
+    for key in commandline:
+        if key not in options or commandline[key]:
+            options[key] = commandline[key]
+        if not options[key]:
+            options[key] = defaults[key]
+    return options
+
+
+def read_vms_from_file(path):
+    try:
+        return [line.rstrip('\n').rstrip('\r') for line in open(path)]
+    except Exception as e:
+        logger.critical("Error in reading VM file file! Process will terminate! Error: " + str(e))
+        exit(2)
 
 
 def get_running_vms():
