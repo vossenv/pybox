@@ -256,7 +256,7 @@ def start_single_vm(name):
 
 
 def stop_single_vm(name, force=False, max_wait=-1.0):
-    method = "poweroff" if force == 'acpi' else "acpipowerbutton"
+    method = "poweroff" if force else "acpipowerbutton"
     logger.info("Attempting to stop vm: " + name)
     c = process_shell_result("vboxmanage controlvm \"" + name + "\" " + method + " --type headless", "Failed to stop vm: " + name)
     await_vm_halt(name, max_wait)
