@@ -8,7 +8,7 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setup(name='snakebox',
-      version='1.0.4',
+      version='1.0.5',
       description='Simple click based interface for managing Virtualbox VMs',
       long_description=long_description,
       long_description_content_type="text/markdown",
@@ -33,6 +33,11 @@ setup(name='snakebox',
       install_requires=[
           'click',
       ],
+      entry_points={
+          'console_scripts': [
+              'snakebox = snakebox.app:main'
+          ]
+      },
       extras_require={
           ':sys_platform=="win32"': [
               'pywin32-ctypes',
@@ -42,3 +47,5 @@ setup(name='snakebox',
       },
       tests_require=test_deps,
 )
+
+# twine upload --repository testpypi dist/*.tar.gz dist/*.whl 
