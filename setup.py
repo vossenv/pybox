@@ -48,4 +48,5 @@ setup(name='snakebox',
       tests_require=test_deps,
 )
 
-# twine upload --repository testpypi dist/*.tar.gz dist/*.whl 
+# twine upload --repository testpypi dist/*.tar.gz dist/*.whl
+# twine upload dist/*.tar.gz dist/*.whl
