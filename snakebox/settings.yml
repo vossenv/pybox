@@ -1,0 +1,9 @@
+
+#start_delay: -1,
+#debug: False,
+#vmlist: "vmn1name, vm2name"
+#vmfile: vmfile.txt
+#force: False,
+#max_wait_time: 1.0,
+#add: True,
+#restart: True

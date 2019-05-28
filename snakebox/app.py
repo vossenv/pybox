@@ -4,11 +4,11 @@ import time
 import datetime
 import yaml
 import click
-import customlogging
+from snakebox import customlogging
 from subprocess import check_output, CalledProcessError
 
 customlogging.initLogger()
-logger = logging.getLogger("vbox")
+logger = logging.getLogger("snakebox")
 
 defaults = {
     'start_delay': -1,
@@ -32,10 +32,23 @@ defaults = {
               help="path to vmfile (line by line list of VM names in VirtualBox)",
               type=str,
               nargs=1)
+@click.option('-c','--config',
+              help="point to config yaml.  Default name is settings.yml and read automatically",
+              type=str,
+              nargs=1,
+              default="settings.yml")
 @click.pass_context
 def cli(ctx, **kwargs):
-    with open("settings.yml", 'r') as stream:
-        options = yaml.safe_load(stream)
+
+    try:
+        with open(kwargs['config'], 'r') as stream:
+            options = yaml.safe_load(stream)
+    except Exception as e:
+        if not kwargs['config'] == "settings.yml":
+            logger.critical("Failed to load config file: " + kwargs['config'] + " due to error: " + str(e))
+            exit(2)
+        options = {}
+
     options = set_options(options, kwargs)
     logger.setLevel(logging.DEBUG if options['debug'] else logging.INFO)
 
@@ -120,11 +133,11 @@ def restart(ctx, **kwargs):
 
 @cli.command()
 @click.pass_context
-@click.option('--force', is_flag=True,
+@click.option('--force', is_flag=True, default=None,
               help="how to power down the vm - hard (force) or normal (acpi)")
-@click.option('--add', is_flag=True,
+@click.option('--add', is_flag=True, default=None,
               help="if set, the VM will be registered in the virtualbox GUI afterwards")
-@click.option('--restart', is_flag=True,
+@click.option('--restart', is_flag=True, default=None,
               help="if set, the original VMs will be started after cloning")
 def clone(ctx, **kwargs):
     options = set_options(ctx.obj, kwargs)
@@ -206,7 +219,12 @@ def set_options(options, commandline):
 
 def read_vms_from_file(path):
     try:
-        return [line.rstrip('\n').rstrip('\r') for line in open(path)]
+        filtered = []
+        raw = [line.rstrip('\n').rstrip('\r') for line in open(path)]
+        for l in raw:
+            if l and not l.startswith("#"): filtered.append(l)
+        return filtered
+
     except Exception as e:
         logger.critical("Error in reading VM file file! Process will terminate! Error: " + str(e))
         exit(2)

@@ -1,4 +1,0 @@
-debug: False
-max_wait_time: 0.25
-#vmlist: "ubuntu-bionic64!@#$'"
-#vmfile: vmfile.txt
