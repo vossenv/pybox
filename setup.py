@@ -32,12 +32,8 @@ setup(name='snakebox',
       },
       install_requires=[
           'click',
+          'pyyaml'
       ],
-      entry_points={
-          'console_scripts': [
-              'snakebox = snakebox.app:main'
-          ]
-      },
       extras_require={
           ':sys_platform=="win32"': [
               'pywin32-ctypes',
@@ -46,6 +42,11 @@ setup(name='snakebox',
           'test': test_deps,
       },
       tests_require=test_deps,
+      entry_points={
+          'console_scripts': [
+              'snakebox = snakebox.app:cli',
+          ]
+      },
 )
 
 # twine upload --repository testpypi dist/*.tar.gz dist/*.whl
