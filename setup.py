@@ -8,7 +8,7 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setup(name='snakebox',
-      version='1.0.5',
+      version='1.0.7',
       description='Simple click based interface for managing Virtualbox VMs',
       long_description=long_description,
       long_description_content_type="text/markdown",
